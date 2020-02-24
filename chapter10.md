@@ -395,19 +395,50 @@ public class ProductBacklogItemService ... {
 
 ### 설계를 다시 한 번 생각해보자
 
+- 큰 클러스터의 Product 를 쪼개는 리팩토링 후 BacklogItem 은 자신만의 애그리게잇을 갖게 된다. (그림 10.7)
+- 각 BacklogItem 은 전역 고유 식별자인 BacklogItemId 를 가지며, 다른 애그리게잇으로 이어진 모든 연결은 ID 를 통해 알 수 있다.
+
 <img src="resources/images/10-7.png" width="733" height="579" alt="완전한 BacklogItem 애그리게잇 구성"/>
+
+- 잠재적인 오버헤드를 비롯해 큰 클러스터의 Product 를 설계할 때 오류가 있었기 때문에 팀은 바운디드 컨텍스트안에 위치한 모든 애그리게잇의 크기를 줄이는 임무에 착수했다.
+- 프로젝트오베이션 개발자들의 의문
+    - BacklogItem 과 task 사이의 관계에서 유지했어야만 하는 진정한 고정자가 있었을까?
+    - 연결을 좀 더 쪼개서 두 개의 개별 애그리게잇으로 안전하게 나눌 수 있는 또 하나의 경우였을까?
+    - 이 설계를 지금 그대로 유지하는 데 필요한 총비용은 얼마일까?
+- 위 의문에 대한 올바른 결정을 내리는 열쇠는 다음의 유비쿼터스 언어에 있다.
+    - 백로그 항목의 태스크에 진전이 있다면, 팀원은 태스크 수행의 남은 시간을 예측한다.
+    - 팀원이 특정 태스크의 남은 시간을 0시라고 예측했다면, 백로그 항목은 남은 시간이 있는지 모든 태스크를 확인한다. 모든 태스크의 남은 시간이 0이라면, 백로그 항목의 상태가 자동으로 완료로 변경된다.
+    - 팀원이 특정 태스크에 한 시간 이상이 남아있다고 예측했지만 백로그 항목이 이미 완료 상태라면, 상태가 자동으로 복구된다.
+- 태스크 시간의 총합과 백로그 항목의 상태가 일관성 있게 유지된다면, 그림 10.7이 올바른 애그리게잇 일관성 경계를 규명한 듯 보인다.
+- 팀은 현재 클러스터가 성능과 학장성에 있어서 얼마나 비용을 소모할지도 생각해봐야 한다.
+    - 백로그 항목의 상태를 남은 태스크 시간의 총합에 따른 결과적 일관성으로 달성할 수 있을 때 절약할 수 있는 비용과 비교하게 된다.
+    - 결과적 일관성을 적용할 수 있는 전형적인 기회로 판단하겠지만, 트랜잭션 일관성의 접근법을 분석해 보고, 결과적 일관성을 사용했을 때 얻을 수 있는 게 무었인지에 따라 결정을 할 수 있다.
 
 ### 애그리게잇 비용의 예측
 
+- 그림 10.7 처럼 각 Task 는 EstimationLogEntry 인스턴스 집합을 갖고 있을때 BacklogItem 이 갖고 있는 Task 요소의 수와 주어진 Task 가 갖고 있는 EstimationLogEntry 요소의 수의 예측에는 '봉투 뒷면에 계산하는 방법 BOTE, Back-of-the-envelop' 이 도움이 될 수 있다.
+
 ### 일반적인 사용 시나리오
 
+- 여러가지 가상의 시나리오에 의해 개발자는 실제로 여러 사용자가 정기적으로 태스크를 함께 추가하길 원한다는 점을 알게 되면, BacklogItem 과 Task 를 두 개의 개별 애그리게잇으로 분리하는 방향이 될 수 있다.
+    - 이런 선택은 여러 태스크가 동시에 커질 수 있도록 할 때도 의미가 있는데, 특히 이로 인해 성능과 확장성 문제가 발생하지 않는다면 더욱 그렇다.
+
 ### 메모리 소비
+
+- 태스크를 위한 지연 로딩과 추정 로그 엔트리를 위한 지연 로딩 같은 두번의 지연 로딩을 유발하며, 팀은 여러 번의 가져오기 동작에서 발생할 수 있는 오버헤드를 조사하기 위해 테스트해야 한다.
+- 프로젝트오베이션 개발자는 BOTE 로 애그리게잇 비용 및 메모리 소비에 대해 결론을 내릴 수 없으므로 팀의 관심사를 잘 반영한 설계라 자신하기에는 여전히 변수가 너무 많다고 판단했다.
 
 ### 또 다른 설계 대안 살펴보기
 
 <img src="resources/images/10-8.png" width="941" height="495" alt="별도의 애그리게잇으로 모델링된 BacklogItem 과 Task"/>
 
+- 팀은 Task 가 애그리게잇에 의존적이지 않도록 하려면 무엇을 해야 할지, 그리고 의존성을 끊는 편이 도움이 되긴 할지 생각해보고자 했다. (그림 10.8)
+- 이 설계에 따르면 최고의 성능을 위해 모든 예측 로그 엔트리를 지연 없이 즉시 로드하는 옵션도 선택할 수 있다.
+- 결과적 일관성을 사용해야 했으며, 도메인 전문가와 논의 끝에 예측과 완료 상태로의 설정 사이에 발생하는 지연시간을 허용할 수 있다는 점을 알게 됐다.
+
 ### 결과적 일관성의 구현
+
+- Task 가 estimateHoursRemaining() 커맨드를 처리할 때 해당하는 도메인 이벤트가 발행되며, 팀은 이 이벤트를 활용해서 결과적 일관성을 달성할 것이다.
 
 ```java
 public class TaskHoursRemainingEstimated implements DomainEvent {
@@ -419,6 +450,13 @@ public class TaskHoursRemainingEstimated implements DomainEvent {
     ...
 }
 ```
+
+- 특수화된(specialized) 구독자는 이를 리스닝 하면서, 일관성 처리를 조정하기 위해 도메인 서비스로 위임한다.
+    - 식별된 BacklogItem 을 가져오기 위해 BacklogItemRepository 를 사용한다.
+    - 식별된 BacklogItem 과 연결된 모든 Task 인스턴스를 가져오기 위해 TaskRepository 를 사용한다.
+    - 도메인 이벤트의 hoursRemaining 과 가져온 Task 인스턴스를 전달해 estimateTaskHoursRemaining 이라는 이름의 BacklogItem 커맨드를 실행한다.
+
+- 리파지토리를 통해 모든 Task 인스턴스를 가져오는 대신, 단순히 데이터베이스의 계산을 통해 모든 Task 시간의 합계를 알 수 있는 방식으로 최적화 할 수 있다.
 
 ```java
 public class HibernateTaskRepository implements TaskRepository {
@@ -436,13 +474,32 @@ public class HibernateTaskRepository implements TaskRepository {
 }
 ```
 
+- 결과적 일관성 때문에 사용자 인터페이스가 복잡해 질 수 있다.
+    - 뷰는 백그라운드 Ajax 폴링 요청을 사용할 수 있겠지만 이는 비효율적이다.
+    - Comet(Ajax push) 에 의존할 수도 있다.
+    - 스크린상에 시각적 큐를 사용해 사용자에게 현재 상태가 활실하지 않다고 안내할 수도 있다.
+    - 뷰에서 재확인이나 새로 고침의 시간 간격을 제안할 수도 있다.
+    - 렌더링된 뷰에 변경된 상태를 보여주는 방법도 있다.
+
 ### 이는 팀원이 할 일인가
 
+- 하위 태스크 전체의 완료가 부모 백로그 완료로 자동으로 될지 수동으로 될지는 애플리케이션 설정으로 선택적으로 가능해야 한다.
+- story 특성의 오버헤드에 대해 지연 로딩이나 아예 별도의 애그리게잇으로 설계해서 필요할 때마다 로드할 수 있다.
+    - 외부 애그리게잇은 ID 로만 참조한다는 규칙을 어기기에 좋은 기회
+
 ### 결정의 시간
+
+- 결정해야할 시간이 되면 열린 마음이 실용적 선택을 막게 된다.
+- 팀이 이해한 바에 따르면 현재의 애그리게잇은 상당히 작기 때문에 Task 와 BacklogItem 을 분리하지 않기로 했으며, 실제 서비스에서 예상보다 애그리게잇의 크기가 커진다면둘로 나누면 된다.
+- 찾아가는 시간을 부끄럽게 피하지 말고 부딪히자.
+    - 이를 통해 핵심 도메인에 관해 더 깊은 통찰을 얻을 수 있기 때문에 충분히 가치 있는 시간이 될 것이다.
 
 ## 구현
 
 ### 고유 ID 와 루트 앤터티를 생성하라
+
+- 하나의 엔터티를 애그리게잇 루트로 모델링하라.
+- 정제된 Product 모델은 다음과 같은 루트 엔터티의 선언에 이르게 된다.
 
 ```java
 public class Product extends ConcurrencySafeEntity {
@@ -456,6 +513,9 @@ public class Product extends ConcurrencySafeEntity {
 }
 ```
 
+- ConcurrencySafeEntity 는 대리 식별자와 낙관적 동시성 버전을 관리하기 위해 사용한 계층 슈퍼 타입(Layered Supertype)이다.
+- ProductRepository 의 구현은 nextIdentity() 를 통해 ProductId 를 UUID 로 생성토록 해준다.
+
 ```java
 public class HibernateProductRepository implements ProductRepository {
     ...
@@ -465,6 +525,8 @@ public class HibernateProductRepository implements ProductRepository {
     ...
 }
 ```
+
+- nextIdentity() 를 사용하면 클라이언트의 애플리케이션 서비스가 전역 고유 식별자와 함께 Product 를 인스턴스화할 수 있다.
 
 ```java
 public class ProductService ... {
@@ -491,9 +553,17 @@ public class ProductService ... {
 }
 ```
 
+- 애플리케이션 서비스는 ProductRepository 를 사용해 ID 를 생성하고, 새로운 Product 인스턴스를 저장한다.
+    - 새로운 ProductId 의 플레인 String 표현을 반환한다.
+
 ### 값 객체 파트를 선호하라
 
+- 가능하다면 포함된 애그리게잇 파트를 엔터티보다는 값 객체로서 모델링하는 편을 선택하자.
+    - 모델이나 인프라에서 의미 있는 오버헤디를 야기하지 않는다면, 완전히 대체될 수 있는 파트가 최선의 선택지다.
+
 ### '데메테르의 법칙'과 '묻지 말고 시켜라'를 사용하기
+
+- 두 설계 원칙을 Product 에 적용하는 방법을 살펴보자.
 
 ```java
 public class Product extends ConcurrencySafeEntity {
